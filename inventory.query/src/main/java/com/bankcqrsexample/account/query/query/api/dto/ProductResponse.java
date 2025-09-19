@@ -1,4 +1,4 @@
-package com.distributedinventory.query.api.dto;
+package com.bankcqrsexample.account.query.query.api.dto;
 
 import lombok.AllArgsConstructor;
 import lombok.Builder;

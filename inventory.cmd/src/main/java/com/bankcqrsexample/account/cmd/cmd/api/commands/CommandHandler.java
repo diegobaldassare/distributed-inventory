@@ -1,6 +1,6 @@
-package com.distributedinventory.cmd.api.commands;
+package com.bankcqrsexample.account.cmd.cmd.api.commands;
 
-import com.distributedinventory.cmd.domain.ProductAggregate;
+import com.bankcqrsexample.account.cmd.cmd.domain.ProductAggregate;
 import com.distributedinventory.cqrs.core.handlers.EventSourcingHandler;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Lazy;

@@ -1,18 +1,19 @@
-package com.distributedinventory.query.api.controllers;
+package com.bankcqrsexample.account.query.query.api.controllers;
 
-import com.distributedinventory.query.api.dto.ProductResponse;
-import com.distributedinventory.query.api.dto.ProductListResponse;
-import com.distributedinventory.query.domain.ProductView;
-import com.distributedinventory.query.domain.ProductViewRepository;
+import com.bankcqrsexample.account.query.query.api.dto.ProductResponse;
+import com.bankcqrsexample.account.query.query.api.dto.ProductListResponse;
+import com.bankcqrsexample.account.query.query.domain.ProductView;
+import com.bankcqrsexample.account.query.query.domain.ProductViewRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
+import java.util.Map;
 import java.util.stream.Collectors;
 
 @RestController
-@RequestMapping(path = "/api/v1")
+@RequestMapping(path = "/v1")
 @RequiredArgsConstructor
 public class ProductQueryController {
 
@@ -41,6 +42,41 @@ public class ProductQueryController {
         return productViewRepository.findById(id)
                 .map(product -> ResponseEntity.ok(mapToProductResponse(product)))
                 .orElse(ResponseEntity.noContent().build());
+    }
+
+    @GetMapping("/availability")
+    public ResponseEntity<Map<String, Object>> getAvailability(
+            @RequestParam String sku,
+            @RequestParam(required = false) String storeId) {
+        
+        // For now, return mock availability data
+        // In Phase 3, this will query the proper availability projections
+        var availability = Map.of(
+                "sku", sku,
+                "totalAvailable", 100,
+                "perStore", java.util.List.of(
+                        Map.of(
+                                "storeId", storeId != null ? storeId : "store1",
+                                "onHand", 120,
+                                "reserved", 20,
+                                "available", 100
+                        )
+                )
+        );
+        
+        return ResponseEntity.ok()
+                .header("X-Projection-Lag-ms", "0")
+                .header("ETag", "v1")
+                .body(availability);
+    }
+
+    @GetMapping("/health")
+    public ResponseEntity<Map<String, String>> health() {
+        return ResponseEntity.ok(Map.of(
+                "status", "UP",
+                "service", "inventory-query",
+                "timestamp", java.time.Instant.now().toString()
+        ));
     }
 
     @PostMapping("/products/test")

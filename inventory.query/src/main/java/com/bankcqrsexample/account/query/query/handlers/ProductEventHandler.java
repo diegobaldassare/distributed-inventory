@@ -1,9 +1,9 @@
-package com.distributedinventory.query.handlers;
+package com.bankcqrsexample.account.query.query.handlers;
 
 import com.distributedinventory.cqrs.core.events.ProductCreatedEvent;
 import com.distributedinventory.cqrs.core.events.StockUpdatedEvent;
-import com.distributedinventory.query.domain.ProductView;
-import com.distributedinventory.query.domain.ProductViewRepository;
+import com.bankcqrsexample.account.query.query.domain.ProductView;
+import com.bankcqrsexample.account.query.query.domain.ProductViewRepository;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.kafka.annotation.KafkaListener;

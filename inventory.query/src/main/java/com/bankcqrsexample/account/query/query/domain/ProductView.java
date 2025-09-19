@@ -1,4 +1,4 @@
-package com.distributedinventory.query.domain;
+package com.bankcqrsexample.account.query.query.domain;
 
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;

@@ -1,10 +1,10 @@
-package com.distributedinventory.cmd.infrastructure;
+package com.bankcqrsexample.account.cmd.cmd.infrastructure;
 
-import com.distributed-inventory.cqrs.core.commands.BaseCommand;
+import com.distributedinventory.cqrs.core.commands.BaseCommand;
 import com.distributedinventory.cqrs.core.commands.CommandHandlerMethod;
-import com.distributedinventory.cmd.api.commands.CommandHandler;
-import com.distributedinventory.cmd.api.commands.CreateProductCommand;
-import com.distributedinventory.cmd.api.commands.UpdateStockCommand;
+import com.bankcqrsexample.account.cmd.cmd.api.commands.CommandHandler;
+import com.bankcqrsexample.account.cmd.cmd.api.commands.CreateProductCommand;
+import com.bankcqrsexample.account.cmd.cmd.api.commands.UpdateStockCommand;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import jakarta.annotation.PostConstruct;

@@ -1,7 +1,7 @@
-package com.distributedinventory.cmd;
+package com.bankcqrsexample.account.cmd.cmd;
 
-import com.distributedinventory.cmd.api.commands.*;
-import com.distributedinventory.cmd.infrastructure.ProductCommandDispatcher;
+import com.bankcqrsexample.account.cmd.cmd.api.commands.*;
+import com.bankcqrsexample.account.cmd.cmd.infrastructure.ProductCommandDispatcher;
 import jakarta.annotation.PostConstruct;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.SpringApplication;
@@ -13,7 +13,7 @@ import org.springframework.data.jpa.repository.config.EnableJpaRepositories;
 
 @SpringBootApplication
 @EntityScan("com.distributedinventory.cqrs.core.events")
-@ComponentScan({"com.distributedinventory.cqrs.core", "com.distributedinventory.cmd"})
+@ComponentScan({"com.distributedinventory.cqrs.core", "com.bankcqrsexample.account.cmd.cmd"})
 @EnableJpaRepositories
 public class Application {
 
