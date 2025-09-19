@@ -1,0 +1,546 @@
+openapi: 3.0.3
+info:
+  title: Distributed Inventory — CQRS + Kafka
+  version: 1.1.0
+  description: |
+    Simplified global API (no store segmented paths). `storeId` travels in the body or query when needed.
+    **Writes** (commands) are strongly consistent and partition tolerant (C+P) with idempotency and optimistic locking.
+    **Reads** are highly available and partition tolerant (A+P) with explicit projection lag headers.
+servers:
+  - url: http://localhost:8080
+    description: Local dev
+tags:
+  - name: Commands
+  - name: Queries
+  - name: Convenience
+  - name: Operations
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    IfMatch:
+      name: If-Match
+      in: header
+      required: false
+      schema: { type: string }
+      description: Optimistic locking using the current aggregate version.
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema: { type: string, format: uuid }
+      description: Required for all write commands to guarantee exactly-once at the application level.
+    TraceId:
+      name: X-Trace-Id
+      in: header
+      required: false
+      schema: { type: string }
+      description: Optional trace id for end-to-end observability.
+  responses:
+    Conflict:
+      description: Version conflict (optimistic locking)
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    BadRequest:
+      description: Invalid input
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unauthorized:
+      description: Missing/invalid token
+    Accepted:
+      description: Command accepted for processing (event queued)
+  schemas:
+    ProductCreateRequest:
+      type: object
+      required: [ sku, name, initialOnHand ]
+      properties:
+        sku: { type: string }
+        name: { type: string }
+        initialOnHand: { type: integer, minimum: 0, description: Initial units to place in the chosen store (lowest stock store).' }
+        traceId: { type: string }
+    PurchaseRequest:
+      type: object
+      required: [ sku, qty ]
+      properties:
+        sku: { type: string }
+        qty: { type: integer, minimum: 1 }
+        customerId: { type: string }
+        policy:
+          type: string
+          enum: [highest-available, lowest-latency, round-robin]
+          default: highest-available
+          description: Policy to choose the store when not specified. Default 'highest-available' reduces risk of stockout.
+        traceId: { type: string }
+    AdjustmentRequest:
+      type: object
+      required: [storeId, sku, delta, reason]
+      properties:
+        storeId: { type: string }
+        sku: { type: string }
+        delta: { type: integer }
+        reason: { type: string, enum: [sale, damage, count, manual] }
+        traceId: { type: string }
+    SetAbsoluteRequest:
+      type: object
+      required: [storeId, sku, onHand]
+      properties:
+        storeId: { type: string }
+        sku: { type: string }
+        onHand: { type: integer, minimum: 0 }
+        countRef: { type: string }
+        traceId: { type: string }
+    ReservationRequest:
+      type: object
+      required: [storeId, lines]
+      properties:
+        storeId: { type: string }
+        customerId: { type: string }
+        ttlSeconds: { type: integer, default: 900 }
+        lines:
+          type: array
+          items:
+            type: object
+            required: [sku, qty]
+            properties:
+              sku: { type: string }
+              qty: { type: integer, minimum: 1 }
+    ConfirmReservationRequest:
+      type: object
+      properties:
+        paymentRef: { type: string }
+    CancelReservationRequest:
+      type: object
+      properties:
+        reason: { type: string }
+    TransferRequest:
+      type: object
+      required: [fromStore, toStore, lines]
+      properties:
+        fromStore: { type: string }
+        toStore: { type: string }
+        lines:
+          type: array
+          items:
+            type: object
+            required: [sku, qty]
+            properties:
+              sku: { type: string }
+              qty: { type: integer, minimum: 1 }
+        traceId: { type: string }
+    ReconciliationRequest:
+      type: object
+      required: [storeId, snapshotOnHand]
+      properties:
+        storeId: { type: string }
+        source: { type: string }
+        snapshotOnHand:
+          type: object
+          additionalProperties: { type: integer }
+    AvailabilityView:
+      type: object
+      properties:
+        sku: { type: string }
+        storeId: { type: string }
+        onHand: { type: integer }
+        reserved: { type: integer }
+        available: { type: integer }
+        version: { type: integer }
+        lastEventAt: { type: string, format: date-time }
+    AvailabilityResponse:
+      type: object
+      properties:
+        sku: { type: string }
+        totalAvailable: { type: integer }
+        perStore:
+          type: array
+          items: { $ref: '#/components/schemas/AvailabilityView' }
+    ProductAggregate:
+      type: object
+      properties:
+        sku: { type: string }
+        name: { type: string }
+    ProductTotalView:
+      type: object
+      properties:
+        sku: { type: string }
+        name: { type: string }
+        totalOnHand: { type: integer }
+        totalReserved: { type: integer }
+        totalAvailable: { type: integer }
+    Reservation:
+      type: object
+      properties:
+        reservationId: { type: string }
+        storeId: { type: string }
+        status: { type: string, enum: [CREATED, CONFIRMED, CANCELLED, EXPIRED] }
+        lines:
+          type: array
+          items:
+            type: object
+            properties:
+              sku: { type: string }
+              qty: { type: integer }
+        expiresAt: { type: string, format: date-time }
+        createdAt: { type: string, format: date-time }
+    Event:
+      type: object
+      properties:
+        eventId: { type: string }
+        eventType: { type: string }
+        occurredAt: { type: string, format: date-time }
+        aggregate:
+          type: object
+          properties:
+            type: { type: string }
+            id: { type: string }
+            version: { type: integer }
+        payload: { type: object }
+    Error:
+      type: object
+      properties:
+        code: { type: string }
+        message: { type: string }
+paths:
+  /v1/adjustments:
+    post:
+      tags: [Commands]
+      summary: Relative stock adjustment (delta)
+      security: [ { bearerAuth: [] } ]
+      parameters: [ { $ref: '#/components/parameters/IdempotencyKey' }, { $ref: '#/components/parameters/IfMatch' }, { $ref: '#/components/parameters/TraceId' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/AdjustmentRequest' }
+      responses:
+        '202': { $ref: '#/components/responses/Accepted' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /v1/items:set-absolute:
+    post:
+      tags: [Commands]
+      summary: Absolute onHand set (inventory recount)
+      security: [ { bearerAuth: [] } ]
+      parameters: [ { $ref: '#/components/parameters/IdempotencyKey' }, { $ref: '#/components/parameters/IfMatch' }, { $ref: '#/components/parameters/TraceId' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/SetAbsoluteRequest' }
+      responses:
+        '202': { $ref: '#/components/responses/Accepted' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /v1/reservations:
+    post:
+      tags: [Commands]
+      summary: Create a reservation with TTL
+      security: [ { bearerAuth: [] } ]
+      parameters: [ { $ref: '#/components/parameters/IdempotencyKey' }, { $ref: '#/components/parameters/TraceId' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReservationRequest' }
+      responses:
+        '202': { $ref: '#/components/responses/Accepted' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /v1/reservations/{reservationId}:confirm:
+    post:
+      tags: [Commands]
+      summary: Confirm a reservation (decrement onHand)
+      security: [ { bearerAuth: [] } ]
+      parameters:
+        - name: reservationId
+          in: path
+          required: true
+          schema: { type: string }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/TraceId' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ConfirmReservationRequest' }
+      responses:
+        '202': { $ref: '#/components/responses/Accepted' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /v1/reservations/{reservationId}:cancel:
+    post:
+      tags: [Commands]
+      summary: Cancel a reservation (free reserved)
+      security: [ { bearerAuth: [] } ]
+      parameters:
+        - name: reservationId
+          in: path
+          required: true
+          schema: { type: string }
+        - { $ref: '#/components/parameters/IdempotencyKey' }
+        - { $ref: '#/components/parameters/TraceId' }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/CancelReservationRequest' }
+      responses:
+        '202': { $ref: '#/components/responses/Accepted' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /v1/transfers:
+    post:
+      tags: [Commands]
+      summary: Transfer stock between stores (mini-saga)
+      security: [ { bearerAuth: [] } ]
+      parameters: [ { $ref: '#/components/parameters/IdempotencyKey' }, { $ref: '#/components/parameters/TraceId' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TransferRequest' }
+      responses:
+        '202': { $ref: '#/components/responses/Accepted' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /v1/reconciliations:
+    post:
+      tags: [Commands]
+      summary: Back-office reconciliation snapshot
+      security: [ { bearerAuth: [] } ]
+      parameters: [ { $ref: '#/components/parameters/IdempotencyKey' }, { $ref: '#/components/parameters/TraceId' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ReconciliationRequest' }
+      responses:
+        '202': { $ref: '#/components/responses/Accepted' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /v1/availability:
+    get:
+      tags: [Queries]
+      summary: Availability for a SKU (global or by store)
+      parameters:
+        - name: sku
+          in: query
+          required: true
+          schema: { type: string }
+        - name: storeId
+          in: query
+          required: false
+          schema: { type: string }
+      responses:
+        '200':
+          description: Availability info
+          headers:
+            X-Projection-Lag-ms: { schema: { type: integer }, description: Milliseconds between last event and current projection }
+            ETag: { schema: { type: string }, description: Projection version tag }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AvailabilityResponse' }
+  /v1/items/{sku}/availability:
+    get:
+      tags: [Queries]
+      summary: Availability for a specific SKU
+      parameters:
+        - name: sku
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Availability breakdown by store
+          headers:
+            X-Projection-Lag-ms: { schema: { type: integer } }
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/AvailabilityResponse' }
+  /v1/products/totals:
+    get:
+      tags: [Convenience]
+      summary: List all products with total quantities across all stores
+      parameters:
+        - name: q
+          in: query
+          required: false
+          schema: { type: string }
+          description: Optional search by SKU/name.
+        - name: page
+          in: query
+          schema: { type: integer, minimum: 0, default: 0 }
+        - name: size
+          in: query
+          schema: { type: integer, minimum: 1, maximum: 200, default: 50 }
+      responses:
+        '200':
+          description: Product totals
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items:
+                    type: array
+                    items: { $ref: '#/components/schemas/ProductTotalView' }
+                  page: { type: integer }
+                  size: { type: integer }
+                  total: { type: integer }
+  /v1/purchase:
+    post:
+      tags: [Convenience]
+      summary: Purchase a product without specifying store (policy chooses store)
+      security: [ { bearerAuth: [] } ]
+      parameters: [ { $ref: '#/components/parameters/IdempotencyKey' }, { $ref: '#/components/parameters/TraceId' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/PurchaseRequest' }
+      responses:
+        '202': { $ref: '#/components/responses/Accepted' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /v1/products:
+    post:
+      tags: [Convenience]
+      summary: Create a product and place initialOnHand in the lowest-stock store for that SKU
+      security: [ { bearerAuth: [] } ]
+      parameters: [ { $ref: '#/components/parameters/IdempotencyKey' }, { $ref: '#/components/parameters/TraceId' } ]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/ProductCreateRequest' }
+      responses:
+        '202': { $ref: '#/components/responses/Accepted' }
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+  /v1/reservations/{reservationId}:
+    get:
+      tags: [Queries]
+      summary: Get reservation status
+      parameters:
+        - name: reservationId
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200':
+          description: Reservation found
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/Reservation' }
+        '404':
+          description: Not found
+  /v1/events:
+    get:
+      tags: [Queries]
+      summary: Domain events timeline (debug)
+      parameters:
+        - name: storeId
+          in: query
+          schema: { type: string }
+        - name: sku
+          in: query
+          schema: { type: string }
+        - name: since
+          in: query
+          schema: { type: string, format: date-time }
+      responses:
+        '200':
+          description: List of events
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Event' }
+  /health:
+    get:
+      tags: [Operations]
+      summary: Liveness
+      responses:
+        '200': { description: OK }
+  /ready:
+    get:
+      tags: [Operations]
+      summary: Readiness
+      responses:
+        '200': { description: Ready }
+        '503': { description: Dependencies not available }
+  /metrics:
+    get:
+      tags: [Operations]
+      summary: Prometheus metrics
+      responses:
+        '200': { description: Metrics text }
+  /v1/projections/status:
+    get:
+      tags: [Operations]
+      summary: Projection status and lag
+      responses:
+        '200': { description: Status JSON }
+  /v1/projections/rebuild:
+    post:
+      tags: [Operations]
+      summary: Rebuild a projection by replay
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                projection: { type: string }
+      responses:
+        '202': { description: Rebuild started }
+  /v1/idempotency/{key}:
+    get:
+      tags: [Operations]
+      summary: Inspect idempotent result by key
+      parameters:
+        - name: key
+          in: path
+          required: true
+          schema: { type: string }
+      responses:
+        '200': { description: Stored result }
+        '404': { description: Not found }
+  /v1/dlt:
+    get:
+      tags: [Operations]
+      summary: List dead-letter messages
+      parameters:
+        - name: topic
+          in: query
+          schema: { type: string }
+        - name: limit
+          in: query
+          schema: { type: integer, default: 100 }
+      responses:
+        '200': { description: Messages JSON }
+  /v1/dlt/replay:
+    post:
+      tags: [Operations]
+      summary: Replay messages from DLT
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                topic: { type: string }
+                messageIds:
+                  type: array
+                  items: { type: string }
+      responses:
+        '202': { description: Replay requested }

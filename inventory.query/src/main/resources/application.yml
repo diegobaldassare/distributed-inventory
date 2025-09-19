@@ -1,0 +1,33 @@
+server:
+  port: 5001
+
+spring:
+  datasource:
+    url: jdbc:h2:mem:queryDb
+    driver-class-name: org.h2.Driver
+    username: sa
+    password:
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.H2Dialect
+        show_sql: true
+    show-sql: true
+  h2:
+    console:
+      enabled: true
+  kafka:
+    consumer:
+      bootstrap-servers: kafka:9092
+      group-id: inventoryConsumer
+      auto-offset-reset: earliest
+      key-deserializer: org.apache.kafka.common.serialization.StringDeserializer
+      value-deserializer: org.springframework.kafka.support.serializer.JsonDeserializer
+      properties:
+        spring.json.trusted.packages: "*"
+        enable.auto.commit: true
+        auto.commit.interval.ms: 1000
+        session.timeout.ms: 30000
+        heartbeat.interval.ms: 10000
