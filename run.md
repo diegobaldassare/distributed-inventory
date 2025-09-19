@@ -24,7 +24,7 @@ This is a **Distributed Inventory System** built using **CQRS (Command Query Res
 ### 1. Clone and Navigate to Project
 ```bash
 git clone <repository-url>
-cd cqrs-inventory/distributed-inventory
+cd distributed-inventory
 ```
 
 ### 2. Start the System

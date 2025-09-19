@@ -8,10 +8,12 @@ The original system prioritized **Availability** and **Partition Tolerance**: ea
 ### Interpretation
 According to the **CAP theorem**, we cannot guarantee Consistency, Availability, and Partition Tolerance simultaneously. To mitigate this limitation, the solution splits trade-offs between **writes** and **reads** applying CQRS design pattern.
 
+![Actual System](assets/actual-system.png "Actual System")
 ---
 
 ## Solution
 
+![Optimized System](assets/optimized-system.png "Optimized System")
 
 ### Writes (Commands)
 - **Centralized through a transactional database / command pipeline**.  
